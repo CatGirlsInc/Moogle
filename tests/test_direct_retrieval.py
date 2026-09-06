@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 
-from moogle_ingest.direct_retrieval import direct_vector_search, embed_texts
+import pytest
+
+from moogle_ingest.direct_retrieval import check_table_compatibility, direct_vector_search, embed_texts
 
 
 def test_embed_texts_orders_by_index(monkeypatch):
@@ -90,3 +92,69 @@ def test_direct_vector_search_raises_on_nonzero_exit(monkeypatch):
         assert False, "expected RuntimeError"
     except RuntimeError as exc:
         assert "boom" in str(exc)
+
+
+class FakeCompletedProcess:
+    def __init__(self, stdout="", returncode=0, stderr=""):
+        self.stdout = stdout
+        self.returncode = returncode
+        self.stderr = stderr
+
+
+def _fake_run_returning(response: dict):
+    def fake_run(cmd, check=False, capture_output=False, text=False, timeout=None):
+        if cmd[:2] == ["docker", "cp"]:
+            return FakeCompletedProcess()
+        if cmd[:2] == ["docker", "exec"]:
+            return FakeCompletedProcess(stdout=json.dumps(response))
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    return fake_run
+
+
+def test_check_table_compatibility_passes_for_healthy_table(monkeypatch):
+    monkeypatch.setattr("moogle_ingest.direct_retrieval.shutil.which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(
+        "moogle_ingest.direct_retrieval.subprocess.run",
+        _fake_run_returning(
+            {"exists": True, "fields": ["id", "text", "title", "vector"], "vectorDim": 1024, "rowCount": 196988}
+        ),
+    )
+
+    info = check_table_compatibility(namespace="bg-wiki")
+    assert info["rowCount"] == 196988
+
+
+def test_check_table_compatibility_raises_when_table_missing(monkeypatch):
+    monkeypatch.setattr("moogle_ingest.direct_retrieval.shutil.which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(
+        "moogle_ingest.direct_retrieval.subprocess.run",
+        _fake_run_returning({"exists": False, "tables": ["bg-wiki"]}),
+    )
+
+    with pytest.raises(RuntimeError, match="not found"):
+        check_table_compatibility(namespace="missing-workspace")
+
+
+def test_check_table_compatibility_raises_when_field_missing(monkeypatch):
+    monkeypatch.setattr("moogle_ingest.direct_retrieval.shutil.which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(
+        "moogle_ingest.direct_retrieval.subprocess.run",
+        _fake_run_returning({"exists": True, "fields": ["id", "vector"], "vectorDim": 1024, "rowCount": 10}),
+    )
+
+    with pytest.raises(RuntimeError, match="missing required field"):
+        check_table_compatibility(namespace="bg-wiki")
+
+
+def test_check_table_compatibility_raises_on_dimension_mismatch(monkeypatch):
+    monkeypatch.setattr("moogle_ingest.direct_retrieval.shutil.which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(
+        "moogle_ingest.direct_retrieval.subprocess.run",
+        _fake_run_returning(
+            {"exists": True, "fields": ["id", "text", "title", "vector"], "vectorDim": 384, "rowCount": 10}
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="vector dimension"):
+        check_table_compatibility(namespace="bg-wiki", embedding_dim=1024)

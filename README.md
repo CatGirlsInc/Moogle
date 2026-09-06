@@ -154,6 +154,13 @@ uv run moogle ask "..." --backend direct-lancedb --verbose
 uv run moogle ask "..." --backend direct-lancedb --container moogle-anythingllm --storage-dir /app/server/storage/lancedb
 ```
 
+Before every search, `direct-lancedb` runs a lightweight read-only
+compatibility check (table exists, `vector`/`text`/`title` fields present,
+vector dimension matches the embedding model) and fails fast with a clear
+error recommending `--backend anythingllm` if the table is missing or
+schema-incompatible -- e.g. after an AnythingLLM upgrade that changes its
+storage layout, or if the workspace was embedded with a different model.
+
 The `anythingllm` backend remains the default/fallback for comparison; both
 share the same decomposition, dedup/ranking, and synthesis code.
 

@@ -399,9 +399,12 @@ def answer_broad_query_direct(
     mode=query chat endpoint -- eliminating the throwaway LLM generation that
     dominates fan-out latency in the AnythingLLM-backed path.
     """
-    from moogle_ingest.direct_retrieval import direct_vector_search, embed_texts
+    from moogle_ingest.direct_retrieval import check_table_compatibility, direct_vector_search, embed_texts
 
     stopwatch = Stopwatch()
+
+    with stopwatch.track("compatibility check"):
+        check_table_compatibility(container=container, storage_dir=storage_dir, namespace=workspace_slug)
 
     with stopwatch.track("decomposition"):
         subqueries = decompose_query(

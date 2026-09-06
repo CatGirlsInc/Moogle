@@ -148,20 +148,23 @@ def main() -> None:
         if args.backend == "direct-lancedb":
             from moogle_ingest.multi_query import answer_broad_query_direct
 
-            result = answer_broad_query_direct(
-                workspace_slug=args.workspace,
-                ollama_base_url=args.ollama_url,
-                question=args.question,
-                decompose_model=args.decompose_model,
-                synthesis_model=args.synthesis_model,
-                embedding_model=args.embedding_model,
-                container=args.container,
-                storage_dir=args.storage_dir,
-                max_subqueries=args.max_subqueries,
-                top_k_per_query=args.top_k_per_query,
-                max_context_chunks=args.max_context_chunks,
-                similarity_threshold=args.similarity_threshold,
-            )
+            try:
+                result = answer_broad_query_direct(
+                    workspace_slug=args.workspace,
+                    ollama_base_url=args.ollama_url,
+                    question=args.question,
+                    decompose_model=args.decompose_model,
+                    synthesis_model=args.synthesis_model,
+                    embedding_model=args.embedding_model,
+                    container=args.container,
+                    storage_dir=args.storage_dir,
+                    max_subqueries=args.max_subqueries,
+                    top_k_per_query=args.top_k_per_query,
+                    max_context_chunks=args.max_context_chunks,
+                    similarity_threshold=args.similarity_threshold,
+                )
+            except RuntimeError as exc:
+                parser.error(str(exc))
         else:
             from moogle_ingest.multi_query import answer_broad_query
 
