@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 
@@ -31,6 +32,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Resume a prior ingest by preserving the workspace and skipping markdown files already attached to it.",
     )
+
+    up = subparsers.add_parser("up", help="Start the Docker compose stack (alias for `docker compose up -d --wait`)")
+    up.add_argument("--gpu", action="store_true", help="Also apply the compose.gpu.yaml GPU override")
+    up.add_argument("--no-wait", action="store_true", help="Do not wait for services to report healthy")
+
+    down = subparsers.add_parser("down", help="Stop the Docker compose stack (alias for `docker compose down`)")
+    down.add_argument("--gpu", action="store_true", help="Also apply the compose.gpu.yaml GPU override")
+    down.add_argument("--volumes", action="store_true", help="Also remove named volumes (destroys runtime state)")
 
     return parser
 
@@ -83,6 +92,16 @@ def main() -> None:
             f"already_attached={result.get('skipped_existing_files', 0)}"
         )
         return
+
+    if args.command == "up":
+        from moogle_ingest.docker_stack import run_up
+
+        sys.exit(run_up(gpu=args.gpu, wait=not args.no_wait))
+
+    if args.command == "down":
+        from moogle_ingest.docker_stack import run_down
+
+        sys.exit(run_down(gpu=args.gpu, volumes=args.volumes))
 
     parser.error(f"unsupported command: {args.command}")
 

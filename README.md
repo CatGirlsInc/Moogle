@@ -83,7 +83,13 @@ cp .env.example .env
 Start the stack:
 
 ```bash
-docker compose up -d --wait
+uv run moogle up
+```
+
+Stop the stack:
+
+```bash
+uv run moogle down
 ```
 
 Services:
@@ -93,10 +99,13 @@ Services:
 
 Both published ports are bound to `127.0.0.1`.
 
-Optional GPU override for Ollama hosts with NVIDIA runtime support:
+`up`/`down` are thin wrappers around `docker compose`, equivalent to `docker compose up -d --wait` / `docker compose down`. Useful flags:
 
 ```bash
-docker compose -f compose.yaml -f compose.gpu.yaml up -d --wait
+uv run moogle up --gpu       # also apply compose.gpu.yaml
+uv run moogle up --no-wait   # don't wait for healthchecks
+uv run moogle down --gpu     # match the compose files used to start the stack
+uv run moogle down --volumes # also remove named volumes (destroys runtime state)
 ```
 
 ## Clean rebuild from corpus
@@ -104,13 +113,13 @@ docker compose -f compose.yaml -f compose.gpu.yaml up -d --wait
 From trusted cleaned Markdown only:
 
 ```bash
-docker compose down
+uv run moogle down
 # Remove runtime state only:
 docker volume rm moogle_anythingllm
 # Optional: also reset Ollama pulled models/cache
 docker volume rm moogle_ollama
 
-docker compose up -d --wait
+uv run moogle up
 uv run moogle ingest
 ```
 
