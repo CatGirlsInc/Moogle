@@ -62,7 +62,17 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--max-subqueries", type=int, default=6)
     ask.add_argument("--top-k-per-query", type=int, default=4)
     ask.add_argument("--max-context-chunks", type=int, default=12)
-    ask.add_argument("--concurrency", type=int, default=3, help="Max concurrent AnythingLLM fan-out retrieval calls")
+    ask.add_argument("--concurrency", type=int, default=3, help="Max concurrent AnythingLLM fan-out retrieval calls (anythingllm backend only)")
+    ask.add_argument(
+        "--backend",
+        choices=["anythingllm", "direct-lancedb"],
+        default="anythingllm",
+        help="Fan-out retrieval backend: 'anythingllm' (mode=query calls, baseline) or 'direct-lancedb' (bypasses AnythingLLM generation for retrieval)",
+    )
+    ask.add_argument("--embedding-model", default="mxbai-embed-large", help="Embedding model used for direct-lancedb query vectors")
+    ask.add_argument("--container", default="moogle-anythingllm", help="AnythingLLM container name (direct-lancedb backend only)")
+    ask.add_argument("--storage-dir", default="/app/server/storage/lancedb", help="LanceDB storage dir inside the container (direct-lancedb backend only)")
+    ask.add_argument("--similarity-threshold", type=float, default=0.25, help="Minimum similarity score to keep a chunk (direct-lancedb backend only)")
     ask.add_argument("--verbose", action="store_true", help="Print per-stage timing breakdown and diagnostics")
 
     return parser
@@ -135,35 +145,58 @@ def main() -> None:
         return
 
     if args.command == "ask":
-        from moogle_ingest.multi_query import answer_broad_query
+        if args.backend == "direct-lancedb":
+            from moogle_ingest.multi_query import answer_broad_query_direct
 
-        result = answer_broad_query(
-            anythingllm_base_url=args.base_url,
-            workspace_slug=args.workspace,
-            ollama_base_url=args.ollama_url,
-            question=args.question,
-            decompose_model=args.decompose_model,
-            synthesis_model=args.synthesis_model,
-            fanout_model=args.fanout_model,
-            max_subqueries=args.max_subqueries,
-            top_k_per_query=args.top_k_per_query,
-            max_context_chunks=args.max_context_chunks,
-            fanout_concurrency=args.concurrency,
-        )
+            result = answer_broad_query_direct(
+                workspace_slug=args.workspace,
+                ollama_base_url=args.ollama_url,
+                question=args.question,
+                decompose_model=args.decompose_model,
+                synthesis_model=args.synthesis_model,
+                embedding_model=args.embedding_model,
+                container=args.container,
+                storage_dir=args.storage_dir,
+                max_subqueries=args.max_subqueries,
+                top_k_per_query=args.top_k_per_query,
+                max_context_chunks=args.max_context_chunks,
+                similarity_threshold=args.similarity_threshold,
+            )
+        else:
+            from moogle_ingest.multi_query import answer_broad_query
+
+            result = answer_broad_query(
+                anythingllm_base_url=args.base_url,
+                workspace_slug=args.workspace,
+                ollama_base_url=args.ollama_url,
+                question=args.question,
+                decompose_model=args.decompose_model,
+                synthesis_model=args.synthesis_model,
+                fanout_model=args.fanout_model,
+                max_subqueries=args.max_subqueries,
+                top_k_per_query=args.top_k_per_query,
+                max_context_chunks=args.max_context_chunks,
+                fanout_concurrency=args.concurrency,
+            )
+
         if args.verbose:
+            print(f"backend: {args.backend}")
             print(f"subqueries ({len(result['subqueries'])}): {result['subqueries']}")
-            print(f"queries run: {result['queries_run']} (concurrency={result['fanout_concurrency']})")
+            print(f"queries run: {result['queries_run']}")
             for call in result["retrieval_calls"]:
-                print(f"  [{call['elapsed_s']}s] {call['query']!r} -> {call['source_count']} sources")
+                elapsed = f"{call['elapsed_s']}s " if "elapsed_s" in call else ""
+                print(f"  {elapsed}{call['query']!r} -> {call['source_count']} sources")
             print(
                 f"chunks retrieved={result['total_chunks_retrieved']} "
                 f"deduped={result['deduped_source_count']} "
                 f"unique_documents={result['unique_document_count']}"
             )
-            print(
-                f"models: decompose={result['decompose_model']} fanout={result['fanout_model']} "
-                f"synthesis={result['synthesis_model']}"
-            )
+            model_summary = f"decompose={result['decompose_model']} synthesis={result['synthesis_model']}"
+            if "fanout_model" in result:
+                model_summary += f" fanout={result['fanout_model']}"
+            if "embedding_model" in result:
+                model_summary += f" embedding={result['embedding_model']}"
+            print(f"models: {model_summary}")
             print(f"\n{result['timing_report']}\n")
         else:
             print(f"subqueries: {result['subqueries']}")

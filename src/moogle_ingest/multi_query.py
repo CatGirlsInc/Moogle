@@ -377,3 +377,95 @@ def answer_broad_query(
         "total_latency_s": round(stopwatch.total(), 2),
         "timing_report": stopwatch.report(),
     }
+
+
+def answer_broad_query_direct(
+    *,
+    workspace_slug: str,
+    ollama_base_url: str,
+    question: str,
+    decompose_model: str,
+    synthesis_model: str,
+    embedding_model: str = "mxbai-embed-large",
+    container: str = "moogle-anythingllm",
+    storage_dir: str = "/app/server/storage/lancedb",
+    max_subqueries: int = DEFAULT_MAX_SUBQUERIES,
+    top_k_per_query: int = DEFAULT_TOP_K_PER_QUERY,
+    max_context_chunks: int = DEFAULT_MAX_CONTEXT_CHUNKS,
+    similarity_threshold: float = 0.25,
+) -> dict:
+    """Same pipeline as answer_broad_query(), but retrieval goes straight to
+    the existing AnythingLLM LanceDB table instead of through AnythingLLM's
+    mode=query chat endpoint -- eliminating the throwaway LLM generation that
+    dominates fan-out latency in the AnythingLLM-backed path.
+    """
+    from moogle_ingest.direct_retrieval import direct_vector_search, embed_texts
+
+    stopwatch = Stopwatch()
+
+    with stopwatch.track("decomposition"):
+        subqueries = decompose_query(
+            ollama_base_url,
+            model=decompose_model,
+            question=question,
+            max_subqueries=max_subqueries,
+        )
+    all_queries = [question] + subqueries
+
+    with stopwatch.track("embedding"):
+        vectors = embed_texts(ollama_base_url, model=embedding_model, texts=all_queries)
+
+    with stopwatch.track("lancedb search"):
+        results_by_query = direct_vector_search(
+            container=container,
+            storage_dir=storage_dir,
+            namespace=workspace_slug,
+            queries=[(query, vector, top_k_per_query) for query, vector in zip(all_queries, vectors)],
+            similarity_threshold=similarity_threshold,
+        )
+
+    per_query_sources: list[list[dict]] = []
+    retrieval_calls: list[dict] = []
+    for query in all_queries:
+        sources = results_by_query.get(query, [])
+        per_query_sources.append(sources)
+        retrieval_calls.append(
+            {
+                "query": query,
+                "source_count": len(sources),
+                "titles": [s.get("title") for s in sources],
+            }
+        )
+
+    with stopwatch.track("dedupe/rank"):
+        deduped_sources = dedupe_sources(per_query_sources, max_total=max_context_chunks)
+
+    with stopwatch.track("synthesis"):
+        answer = synthesize_answer(
+            ollama_base_url,
+            model=synthesis_model,
+            question=question,
+            sources=deduped_sources,
+        )
+
+    unique_documents = {s.get("title") for s in deduped_sources if s.get("title")}
+    total_chunks_retrieved = sum(len(sources) for sources in per_query_sources)
+
+    return {
+        "question": question,
+        "subqueries": subqueries,
+        "queries_run": len(all_queries),
+        "retrieval_calls": retrieval_calls,
+        "total_chunks_retrieved": total_chunks_retrieved,
+        "deduped_source_titles": [s.get("title") for s in deduped_sources],
+        "deduped_source_count": len(deduped_sources),
+        "unique_document_count": len(unique_documents),
+        "answer": answer,
+        "decompose_model": decompose_model,
+        "embedding_model": embedding_model,
+        "synthesis_model": synthesis_model,
+        "backend": "direct-lancedb",
+        "timings": stopwatch.stages,
+        "total_latency_s": round(stopwatch.total(), 2),
+        "timing_report": stopwatch.report(),
+    }

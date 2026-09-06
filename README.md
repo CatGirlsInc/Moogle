@@ -128,14 +128,34 @@ independent of the workspace's own `chatModel` setting. `--fanout-model` is
 temporarily applied to the workspace for the retrieval-only sub-query calls
 and restored afterward.
 
-**Known bottleneck:** AnythingLLM's `mode=query` endpoint always performs a
-full LLM generation per call, even though the fan-out step only needs the
-retrieved `sources`. Measured directly, this generation (not model loading or
-GPU contention) dominates fan-out latency -- concurrency and a cheap fan-out
-model help modestly, but a broad query with several sub-queries still takes
-roughly 80-110s end to end. See repo memory / experiment notes for details;
-the next step under consideration is replacing these calls with direct
-LanceDB vector search.
+`--synthesis-model` and `--decompose-model` call Ollama directly and are
+independent of the workspace's own `chatModel` setting. `--fanout-model` is
+temporarily applied to the workspace for the retrieval-only sub-query calls
+and restored afterward.
+
+**`--backend anythingllm` (default) known bottleneck:** AnythingLLM's
+`mode=query` endpoint always performs a full LLM generation per call, even
+though the fan-out step only needs the retrieved `sources`. Measured
+directly, this generation (not model loading or GPU contention) dominates
+fan-out latency -- a broad query with several sub-queries takes roughly
+80-110s end to end.
+
+**`--backend direct-lancedb`:** bypasses AnythingLLM's chat endpoint for
+retrieval entirely. It embeds sub-queries with the same `mxbai-embed-large`
+model/endpoint AnythingLLM itself uses, then runs the vector search directly
+against AnythingLLM's own LanceDB table via `docker exec` into the
+AnythingLLM container (reusing its bundled `@lancedb/lancedb` client and
+on-disk index -- no re-embedding, no new database, no Python LanceDB
+dependency). This eliminates the throwaway generation and brought the same
+broad queries down to ~20-30s in testing:
+
+```bash
+uv run moogle ask "..." --backend direct-lancedb --verbose
+uv run moogle ask "..." --backend direct-lancedb --container moogle-anythingllm --storage-dir /app/server/storage/lancedb
+```
+
+The `anythingllm` backend remains the default/fallback for comparison; both
+share the same decomposition, dedup/ranking, and synthesis code.
 
 ## Docker stack
 
