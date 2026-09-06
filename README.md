@@ -72,6 +72,53 @@ Default ingest behavior is deterministic rebuild:
 - skips empty/title-only files and image-sidecar Markdown (`*.png.md`, `*.jpg.md`, `*.jpeg.md`, `*.gif.md`)
 - parses and embeds each file through AnythingLLM workspace APIs (`/api/workspace/:slug/parse` then `/api/workspace/:slug/embed-parsed-file/:fileId`)
 
+## Chat model comparison
+
+Switch a workspace's chat model without touching its documents or vectors:
+
+```bash
+uv run moogle set-chat-model --workspace bg-wiki --model qwen2.5:7b-instruct-q4_K_M
+uv run moogle set-chat-model --workspace bg-wiki --model llama3.2:3b
+```
+
+Pull additional models directly through Ollama, e.g.:
+
+```bash
+docker exec moogle-ollama ollama pull qwen2.5:7b-instruct-q4_K_M
+```
+
+## Broad-question retrieval (`moogle ask`)
+
+Single embedded queries tend to collapse onto one dominant document for broad
+enumeration-style questions (e.g. "what are all sources of X?"). `moogle ask`
+works around this without a new database or reranker:
+
+1. decomposes the question into several focused sub-queries covering distinct
+   categories (stats, equipment, food, abilities, spells/buffs, other),
+2. runs each sub-query (plus the original) through the existing AnythingLLM
+   workspace in `query` mode purely to harvest retrieved source chunks,
+3. deduplicates/ranks the combined chunks by similarity score,
+4. makes one direct call to Ollama (bypassing AnythingLLM's own retrieval) to
+   synthesize a grounded final answer from the deduplicated context.
+
+```bash
+uv run moogle ask "What are all sources of accuracy for player characters in FFXI?"
+```
+
+Useful flags:
+
+```bash
+uv run moogle ask "..." --decompose-model qwen2.5:7b-instruct-q4_K_M
+uv run moogle ask "..." --synthesis-model llama3.2:3b
+uv run moogle ask "..." --top-k-per-query 3 --max-context-chunks 14
+```
+
+For best latency, keep the workspace's own `chatModel` (via `set-chat-model`)
+set to a fast model like `llama3.2:3b` — the per-sub-query calls into
+AnythingLLM use that model but their generated text is discarded, only the
+retrieved sources are kept. The `--synthesis-model` used for the final answer
+is called directly against Ollama and is independent of the workspace setting.
+
 ## Docker stack
 
 Copy the example env file:

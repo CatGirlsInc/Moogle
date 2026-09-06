@@ -207,6 +207,24 @@ def ensure_workspace(
     return slug
 
 
+def set_workspace_chat_model(
+    base_url: str,
+    *,
+    workspace_slug: str,
+    chat_model: str,
+    chat_provider: str = "ollama",
+) -> None:
+    """Switch a workspace's chat model without touching its documents/vectors."""
+    base = _normalize_base_url(base_url)
+    session = requests.Session()
+    _request_json(
+        session,
+        "POST",
+        f"{base}/api/workspace/{workspace_slug}/update",
+        json_body={"chatProvider": chat_provider, "chatModel": chat_model},
+    )
+
+
 def ingest_markdown(
     input_dir: str | Path = "data/processed/markdown",
     base_url: str = "http://localhost:3001",

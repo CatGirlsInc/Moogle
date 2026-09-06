@@ -41,6 +41,27 @@ def build_parser() -> argparse.ArgumentParser:
     down.add_argument("--gpu", action="store_true", help="Also apply the compose.gpu.yaml GPU override")
     down.add_argument("--volumes", action="store_true", help="Also remove named volumes (destroys runtime state)")
 
+    set_chat_model = subparsers.add_parser(
+        "set-chat-model", help="Switch a workspace's chat model without touching its documents/vectors"
+    )
+    set_chat_model.add_argument("--base-url", default="http://localhost:3001")
+    set_chat_model.add_argument("--workspace", default="bg-wiki", help="Workspace slug")
+    set_chat_model.add_argument("--model", required=True, help="Ollama model tag, e.g. qwen2.5:7b-instruct-q4_K_M")
+
+    ask = subparsers.add_parser(
+        "ask",
+        help="Answer a broad question via multi-query retrieval against an AnythingLLM workspace",
+    )
+    ask.add_argument("question")
+    ask.add_argument("--base-url", default="http://localhost:3001", help="AnythingLLM base URL")
+    ask.add_argument("--ollama-url", default="http://localhost:11434", help="Ollama base URL")
+    ask.add_argument("--workspace", default="bg-wiki", help="Workspace slug")
+    ask.add_argument("--decompose-model", default="qwen2.5:7b-instruct-q4_K_M", help="Model used for query decomposition and throwaway per-subquery retrieval calls")
+    ask.add_argument("--synthesis-model", default="qwen2.5:7b-instruct-q4_K_M", help="Model used for the final grounded answer")
+    ask.add_argument("--max-subqueries", type=int, default=6)
+    ask.add_argument("--top-k-per-query", type=int, default=4)
+    ask.add_argument("--max-context-chunks", type=int, default=12)
+
     return parser
 
 
@@ -102,6 +123,34 @@ def main() -> None:
         from moogle_ingest.docker_stack import run_down
 
         sys.exit(run_down(gpu=args.gpu, volumes=args.volumes))
+
+    if args.command == "set-chat-model":
+        from moogle_ingest.anythingllm import set_workspace_chat_model
+
+        set_workspace_chat_model(args.base_url, workspace_slug=args.workspace, chat_model=args.model)
+        print(f"workspace={args.workspace} chat_model={args.model}")
+        return
+
+    if args.command == "ask":
+        from moogle_ingest.multi_query import answer_broad_query
+
+        result = answer_broad_query(
+            anythingllm_base_url=args.base_url,
+            workspace_slug=args.workspace,
+            ollama_base_url=args.ollama_url,
+            question=args.question,
+            decompose_model=args.decompose_model,
+            synthesis_model=args.synthesis_model,
+            max_subqueries=args.max_subqueries,
+            top_k_per_query=args.top_k_per_query,
+            max_context_chunks=args.max_context_chunks,
+        )
+        print(f"subqueries: {result['subqueries']}")
+        print(f"retrieved {result['deduped_source_count']} deduped chunks from {len(result['retrieval_calls'])} queries:")
+        for title in result["deduped_source_titles"]:
+            print(f"  - {title}")
+        print(f"\n[{result['synthesis_model']}, {result['latency_s']}s]\n{result['answer']}")
+        return
 
     parser.error(f"unsupported command: {args.command}")
 
