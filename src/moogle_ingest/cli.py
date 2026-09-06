@@ -56,11 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--base-url", default="http://localhost:3001", help="AnythingLLM base URL")
     ask.add_argument("--ollama-url", default="http://localhost:11434", help="Ollama base URL")
     ask.add_argument("--workspace", default="bg-wiki", help="Workspace slug")
-    ask.add_argument("--decompose-model", default="qwen2.5:7b-instruct-q4_K_M", help="Model used for query decomposition and throwaway per-subquery retrieval calls")
+    ask.add_argument("--decompose-model", default="qwen2.5:7b-instruct-q4_K_M", help="Model used for query decomposition")
     ask.add_argument("--synthesis-model", default="qwen2.5:7b-instruct-q4_K_M", help="Model used for the final grounded answer")
+    ask.add_argument("--fanout-model", default="llama3.2:3b", help="Cheap/fast model temporarily set on the workspace for throwaway per-subquery retrieval calls")
     ask.add_argument("--max-subqueries", type=int, default=6)
     ask.add_argument("--top-k-per-query", type=int, default=4)
     ask.add_argument("--max-context-chunks", type=int, default=12)
+    ask.add_argument("--concurrency", type=int, default=3, help="Max concurrent AnythingLLM fan-out retrieval calls")
+    ask.add_argument("--verbose", action="store_true", help="Print per-stage timing breakdown and diagnostics")
 
     return parser
 
@@ -141,15 +144,33 @@ def main() -> None:
             question=args.question,
             decompose_model=args.decompose_model,
             synthesis_model=args.synthesis_model,
+            fanout_model=args.fanout_model,
             max_subqueries=args.max_subqueries,
             top_k_per_query=args.top_k_per_query,
             max_context_chunks=args.max_context_chunks,
+            fanout_concurrency=args.concurrency,
         )
-        print(f"subqueries: {result['subqueries']}")
-        print(f"retrieved {result['deduped_source_count']} deduped chunks from {len(result['retrieval_calls'])} queries:")
-        for title in result["deduped_source_titles"]:
-            print(f"  - {title}")
-        print(f"\n[{result['synthesis_model']}, {result['latency_s']}s]\n{result['answer']}")
+        if args.verbose:
+            print(f"subqueries ({len(result['subqueries'])}): {result['subqueries']}")
+            print(f"queries run: {result['queries_run']} (concurrency={result['fanout_concurrency']})")
+            for call in result["retrieval_calls"]:
+                print(f"  [{call['elapsed_s']}s] {call['query']!r} -> {call['source_count']} sources")
+            print(
+                f"chunks retrieved={result['total_chunks_retrieved']} "
+                f"deduped={result['deduped_source_count']} "
+                f"unique_documents={result['unique_document_count']}"
+            )
+            print(
+                f"models: decompose={result['decompose_model']} fanout={result['fanout_model']} "
+                f"synthesis={result['synthesis_model']}"
+            )
+            print(f"\n{result['timing_report']}\n")
+        else:
+            print(f"subqueries: {result['subqueries']}")
+            print(f"retrieved {result['deduped_source_count']} deduped chunks ({result['unique_document_count']} unique documents):")
+            for title in result["deduped_source_titles"]:
+                print(f"  - {title}")
+        print(f"\n[{result['synthesis_model']}, {result['total_latency_s']}s total]\n{result['answer']}")
         return
 
     parser.error(f"unsupported command: {args.command}")

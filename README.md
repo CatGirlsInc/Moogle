@@ -93,12 +93,19 @@ Single embedded queries tend to collapse onto one dominant document for broad
 enumeration-style questions (e.g. "what are all sources of X?"). `moogle ask`
 works around this without a new database or reranker:
 
-1. decomposes the question into several focused sub-queries covering distinct
-   categories (stats, equipment, food, abilities, spells/buffs, other),
-2. runs each sub-query (plus the original) through the existing AnythingLLM
-   workspace in `query` mode purely to harvest retrieved source chunks,
-3. deduplicates/ranks the combined chunks by similarity score,
-4. makes one direct call to Ollama (bypassing AnythingLLM's own retrieval) to
+1. decomposes the question into up to 6 sub-queries that maximize coverage of
+   the question's distinct aspects/mechanics/terminology (generic, not tied to
+   a fixed category list; narrow single-entity lookups may decompose to
+   nothing extra),
+2. drops near-duplicate sub-queries (Jaccard similarity vs. the original
+   question and each other),
+3. runs each sub-query (plus the original) concurrently (bounded) through the
+   existing AnythingLLM workspace in `query` mode purely to harvest retrieved
+   source chunks -- the workspace's chat model is temporarily pinned to a
+   cheap/fast model for this step since the generated text is discarded, then
+   restored,
+4. deduplicates/ranks the combined chunks by similarity score,
+5. makes one direct call to Ollama (bypassing AnythingLLM's own retrieval) to
    synthesize a grounded final answer from the deduplicated context.
 
 ```bash
@@ -110,14 +117,25 @@ Useful flags:
 ```bash
 uv run moogle ask "..." --decompose-model qwen2.5:7b-instruct-q4_K_M
 uv run moogle ask "..." --synthesis-model llama3.2:3b
+uv run moogle ask "..." --fanout-model llama3.2:3b
 uv run moogle ask "..." --top-k-per-query 3 --max-context-chunks 14
+uv run moogle ask "..." --concurrency 3
+uv run moogle ask "..." --verbose   # per-stage timing + diagnostics
 ```
 
-For best latency, keep the workspace's own `chatModel` (via `set-chat-model`)
-set to a fast model like `llama3.2:3b` — the per-sub-query calls into
-AnythingLLM use that model but their generated text is discarded, only the
-retrieved sources are kept. The `--synthesis-model` used for the final answer
-is called directly against Ollama and is independent of the workspace setting.
+`--synthesis-model` and `--decompose-model` call Ollama directly and are
+independent of the workspace's own `chatModel` setting. `--fanout-model` is
+temporarily applied to the workspace for the retrieval-only sub-query calls
+and restored afterward.
+
+**Known bottleneck:** AnythingLLM's `mode=query` endpoint always performs a
+full LLM generation per call, even though the fan-out step only needs the
+retrieved `sources`. Measured directly, this generation (not model loading or
+GPU contention) dominates fan-out latency -- concurrency and a cheap fan-out
+model help modestly, but a broad query with several sub-queries still takes
+roughly 80-110s end to end. See repo memory / experiment notes for details;
+the next step under consideration is replacing these calls with direct
+LanceDB vector search.
 
 ## Docker stack
 

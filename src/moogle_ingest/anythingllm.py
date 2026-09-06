@@ -225,6 +225,19 @@ def set_workspace_chat_model(
     )
 
 
+def get_workspace_chat_model(base_url: str, *, workspace_slug: str) -> str | None:
+    base = _normalize_base_url(base_url)
+    session = requests.Session()
+    payload = _request_json(session, "GET", f"{base}/api/workspace/{workspace_slug}")
+    workspace = payload.get("workspace") if isinstance(payload, dict) else None
+    if isinstance(workspace, list):  # some AnythingLLM versions wrap a single-item list
+        workspace = workspace[0] if workspace else None
+    if isinstance(workspace, dict):
+        model = workspace.get("chatModel")
+        return str(model) if model else None
+    return None
+
+
 def ingest_markdown(
     input_dir: str | Path = "data/processed/markdown",
     base_url: str = "http://localhost:3001",
