@@ -1,0 +1,29 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.env
+.env.*
+!.env.example
+*.part
+*.log
+.DS_Store
+.tmp/
+
+# Generated pipeline corpus (rebuildable via `moogle bootstrap`)
+data/raw/
+data/processed/
+BG-Wiki/
+
+# AnythingLLM/Ollama runtime state (LanceDB index, embeddings, app data);
+# lives in named Docker volumes, not bind-mounted, but ignored defensively
+# in case of a local bind mount.
+anythingllm-storage/
+storage/
+*.lance/

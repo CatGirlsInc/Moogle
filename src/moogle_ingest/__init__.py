@@ -1,0 +1,1 @@
+"""BG-Wiki ingestion package."""

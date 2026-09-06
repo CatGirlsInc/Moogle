@@ -1,0 +1,58 @@
+services:
+  ollama:
+    image: ${OLLAMA_IMAGE:-ollama/ollama:0.32.15}
+    container_name: moogle-ollama
+    restart: unless-stopped
+    environment:
+      # Keep both the embedding model and chat model loaded to avoid model-swap latency
+      # on every RAG query (embed request then generation request). Specific model
+      # profiles will override residency per workflow; the default is unload-after-use.
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-2}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-0}
+      # Faster attention kernel on supported GPUs; output quality is unchanged.
+      OLLAMA_FLASH_ATTENTION: ${OLLAMA_FLASH_ATTENTION:-1}
+    volumes:
+      - ollama:/root/.ollama
+    ports:
+      # Auth is disabled (WEBUI_AUTH=False), so keep this off the public interface.
+      - "127.0.0.1:11434:11434"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  anythingllm:
+    image: ${ANYTHINGLLM_IMAGE:-mintplexlabs/anythingllm:1.16.0}
+    container_name: moogle-anythingllm
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ANYTHINGLLM_PORT:-3001}:3001"
+    volumes:
+      - anythingllm:/app/server/storage
+    cap_add:
+      - SYS_ADMIN
+    environment:
+      STORAGE_DIR: /app/server/storage
+      LLM_PROVIDER: ${ANYTHINGLLM_LLM_PROVIDER:-ollama}
+      OLLAMA_BASE_PATH: ${ANYTHINGLLM_OLLAMA_BASE_PATH:-http://ollama:11434}
+      OLLAMA_MODEL_PREF: ${ANYTHINGLLM_CHAT_MODEL:-llama3.2:3b}
+      EMBEDDING_ENGINE: ${ANYTHINGLLM_EMBEDDING_ENGINE:-generic-openai}
+      EMBEDDING_BASE_PATH: ${ANYTHINGLLM_EMBEDDING_BASE_PATH:-http://ollama:11434/v1}
+      EMBEDDING_MODEL_PREF: ${ANYTHINGLLM_EMBEDDING_MODEL:-mxbai-embed-large}
+      GENERIC_OPEN_AI_EMBEDDING_API_KEY: ${ANYTHINGLLM_GENERIC_OPENAI_EMBEDDING_API_KEY:-ollama}
+      GENERIC_OPEN_AI_EMBEDDING_MAX_CONCURRENT_CHUNKS: ${ANYTHINGLLM_EMBEDDING_CONCURRENCY:-16}
+      GENERIC_OPEN_AI_EMBEDDING_API_DELAY_MS: ${ANYTHINGLLM_EMBEDDING_API_DELAY_MS:-0}
+      VECTOR_DB: ${ANYTHINGLLM_VECTOR_DB:-lancedb}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  ollama:
+  anythingllm:
