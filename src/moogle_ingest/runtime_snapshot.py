@@ -36,11 +36,19 @@ def backup_runtime(
     volume: str = DEFAULT_VOLUME,
     helper_image: str = DEFAULT_HELPER_IMAGE,
     level: int = DEFAULT_COMPRESSION_LEVEL,
+    exclude: list[str] | None = None,
 ) -> Path:
-    """Tar+zstd the contents of a named Docker volume to `output`."""
+    """Tar+zstd the contents of a named Docker volume to `output`.
+
+    `exclude` is a list of top-level paths (relative to the volume root, e.g.
+    ["vector-cache"]) to omit from the archive -- useful for AnythingLLM's
+    `vector-cache/` dir, which only speeds up re-embedding already-processed
+    documents and is not required to query the existing LanceDB table.
+    """
     output = Path(output).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
 
+    exclude_flags = " ".join(f"--exclude=./{name}" for name in (exclude or []))
     cmd = [
         "docker", "run", "--rm",
         "-v", f"{volume}:/source:ro",
@@ -48,7 +56,7 @@ def backup_runtime(
         helper_image,
         "sh", "-c",
         f"apk add --no-cache zstd tar >/dev/null 2>&1 && "
-        f"tar -C /source -cf - . | zstd -{level} -T0 -o /backup/{output.name}",
+        f"tar -C /source {exclude_flags} -cf - . | zstd -{level} -T0 -o /backup/{output.name}",
     ]
     _run(cmd)
     print(f"Backed up volume '{volume}' to {output}")

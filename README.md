@@ -312,6 +312,66 @@ this size. Use `--level` to trade off further; a runtime snapshot at this
 scale is well beyond what's practical to attach to a GitHub Release (see
 "GitHub Release size limits" below) even before the copyright concern above.
 
+## Runtime compaction (`moogle runtime compact`)
+
+Most of that ~95 GB is not live data -- it's LanceDB's own historical version
+chain from many incremental ingest runs (`_versions/`), not the current table
+contents (`data/` was ~1.2 GB in the same measurement). Before packaging a
+runtime snapshot for release, run:
+
+```bash
+uv run moogle runtime compact --backup backups/anythingllm-pre-compact.tar.zst
+```
+
+This uses LanceDB's own supported maintenance API, `Table#optimize()`
+("modeled after `VACUUM` in PostgreSQL": compacts small fragments, prunes old
+table versions, refreshes indices) -- it never touches `_versions`/data files
+directly. Concretely, `moogle runtime compact`:
+
+1. records the current on-disk storage size and the table's row count,
+2. takes a safety backup first via `moogle runtime backup` (required unless
+   `--skip-backup` is passed explicitly),
+3. stops the `anythingllm` container so nothing writes to the table
+   concurrently,
+4. runs `optimize()` inside a throwaway container built from the *same*
+   AnythingLLM image (so it uses the exact same bundled LanceDB client
+   version) with the volume mounted, keeping only the current table version
+   by default (`--cleanup-older-than-days 0`),
+5. restarts the `anythingllm` container (always, even if compaction fails),
+6. verifies the row count is unchanged, the table opens normally, and the
+   `direct-lancedb` retrieval backend still returns the expected top result
+   for two known queries (`Accuracy Bonus`, `Blade Madrigal`) -- skip with
+   `--skip-verify`.
+
+Useful flags: `--cleanup-older-than-days N` (keep more history instead of
+just the current version), `--workspace <slug>` for a different table,
+`--skip-backup`/`--skip-verify` to speed up repeat runs once you trust the
+result on a given volume.
+
+**Verified result (2026-09-14, `bg-wiki` table, 196,988 rows):** storage went
+from 94.85 GiB to 5.38 GiB (freed 89.47 GiB) in a single run --
+`fragmentsRemoved: 47941`, `oldVersionsRemoved: 47942`, `bytesRemoved: ~97 GB`.
+Row count and per-query similarity scores for both verification queries were
+bit-for-bit identical before and after (same top document, same score to 15
+decimal places), confirming `optimize()` only compacted/pruned history and
+never touched live vectors.
+
+**`vector-cache/` (~4.4 GB):** AnythingLLM's own source
+(`utils/files/index.js`, `cachedVectorInformation()`) confirms this is a
+rebuildable cache keyed by filename, used only to skip *re-embedding* a
+document if it's added to a workspace again -- it is not read at query time
+and is unrelated to the live LanceDB table. It is **not required** for a
+fast-start runtime snapshot; `moogle runtime backup --exclude vector-cache`
+omits it. The live volume is left untouched either way -- excluding it only
+affects what goes into a *packaged* snapshot, not the running stack (which
+still benefits from the cache if it re-processes a document later).
+
+Final packaged release snapshot for this corpus:
+`anythingllm-bgwiki-20250225.1.tar.zst`, **761 MiB** (`--level 19 --exclude
+vector-cache`, only practical to use a high compression level *after*
+compaction -- 1.2 GiB uncompressed at this point, vs. the ~95 GB/25.6 GiB
+before compaction).
+
 ## Compatibility assumptions (`--backend direct-lancedb`)
 
 The direct LanceDB retrieval backend (see `moogle ask` below) reads

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -81,11 +82,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="zstd compression level (default 3 -- LanceDB volumes are mostly float32 vector data, "
         "which barely compresses, so a high level costs a lot of time for little size benefit)",
     )
+    runtime_backup.add_argument(
+        "--exclude", action="append", default=[],
+        help="Top-level path under the volume to omit from the archive (repeatable), "
+        "e.g. --exclude vector-cache. vector-cache only speeds up re-embedding already-processed "
+        "documents and is not required to query the existing LanceDB table.",
+    )
 
     runtime_restore = runtime_sub.add_parser("restore", help="Restore a backup into the AnythingLLM Docker volume (stack should be stopped)")
     runtime_restore.add_argument("input", help="Path to a backup produced by `moogle runtime backup`")
     runtime_restore.add_argument("--volume", default="moogle_anythingllm")
     runtime_restore.add_argument("--no-wipe", action="store_true", help="Do not clear existing volume contents before restoring")
+
+    runtime_compact = runtime_sub.add_parser(
+        "compact",
+        help="Vacuum the LanceDB table (compact fragments, prune old versions) to shrink the runtime volume before packaging a snapshot",
+    )
+    runtime_compact.add_argument("--container", default="moogle-anythingllm")
+    runtime_compact.add_argument("--volume", default="moogle_anythingllm")
+    runtime_compact.add_argument("--image", default=None, help="Image to run the maintenance container from (default: auto-detect from the running container)")
+    runtime_compact.add_argument("--storage-dir", default="/app/server/storage/lancedb")
+    runtime_compact.add_argument("--workspace", default="bg-wiki", help="Workspace slug / LanceDB table name")
+    runtime_compact.add_argument("--cleanup-older-than-days", type=int, default=0, help="Prune table versions older than this many days (default 0 = keep only the current version)")
+    runtime_compact.add_argument("--backup", default=None, help="Path to write a safety backup to before compacting (recommended; see `moogle runtime backup`)")
+    runtime_compact.add_argument("--skip-backup", action="store_true", help="Skip the safety backup (not recommended)")
+    runtime_compact.add_argument("--backup-level", type=int, default=3, help="zstd level for the safety backup, if taken")
+    runtime_compact.add_argument("--skip-verify", action="store_true", help="Skip post-compaction retrieval verification queries")
+    runtime_compact.add_argument("--ollama-url", default="http://localhost:11434", help="Ollama base URL, used to embed verification queries")
+    runtime_compact.add_argument("--embedding-model", default="mxbai-embed-large")
 
     up = subparsers.add_parser("up", help="Start the Docker compose stack (alias for `docker compose up -d --wait`)")
     up.add_argument("--gpu", action="store_true", help="Also apply the compose.gpu.yaml GPU override")
@@ -130,6 +154,64 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--verbose", action="store_true", help="Print per-stage timing breakdown and diagnostics")
 
     return parser
+
+
+_VERIFICATION_QUERIES = ("Accuracy Bonus", "Blade Madrigal")
+
+
+def _run_runtime_compact(args: argparse.Namespace) -> None:
+    from moogle_ingest.direct_retrieval import check_table_compatibility, direct_vector_search, embed_texts
+    from moogle_ingest.lancedb_maintenance import compact_lancedb_table, get_storage_size_bytes
+    from moogle_ingest.runtime_snapshot import backup_runtime
+
+    size_before = get_storage_size_bytes(container=args.container)
+    if size_before is not None:
+        print(f"Storage size before: {size_before / (1024 ** 3):.2f} GiB")
+
+    if not args.skip_backup:
+        print(f"Taking safety backup to {args.backup} before compacting...")
+        backup_runtime(output=Path(args.backup), volume=args.volume, level=args.backup_level)
+
+    print(f"Compacting LanceDB table '{args.workspace}'...")
+    stats = compact_lancedb_table(
+        container=args.container,
+        volume=args.volume,
+        image=args.image,
+        storage_dir=args.storage_dir,
+        namespace=args.workspace,
+        cleanup_older_than_days=args.cleanup_older_than_days,
+    )
+    print(json.dumps(stats, indent=2))
+
+    if stats["rowCountAfter"] != stats["rowCountBefore"]:
+        raise RuntimeError(
+            f"Row count changed after compaction ({stats['rowCountBefore']} -> {stats['rowCountAfter']}); "
+            "this should never happen for optimize()/cleanup. Restore the safety backup and investigate."
+        )
+
+    size_after = get_storage_size_bytes(container=args.container)
+    if size_before is not None and size_after is not None:
+        print(
+            f"Storage size: {size_before / (1024 ** 3):.2f} GiB -> {size_after / (1024 ** 3):.2f} GiB "
+            f"(freed {(size_before - size_after) / (1024 ** 3):.2f} GiB)"
+        )
+
+    if args.skip_verify:
+        return
+
+    print("Verifying table compatibility and retrieval after compaction...")
+    check_table_compatibility(container=args.container, storage_dir=args.storage_dir, namespace=args.workspace)
+
+    vectors = embed_texts(args.ollama_url, model=args.embedding_model, texts=list(_VERIFICATION_QUERIES))
+    queries = [(q, v, 3) for q, v in zip(_VERIFICATION_QUERIES, vectors)]
+    results = direct_vector_search(container=args.container, storage_dir=args.storage_dir, namespace=args.workspace, queries=queries)
+    for query, sources in results.items():
+        if not sources:
+            raise RuntimeError(f"Verification query {query!r} returned zero sources after compaction")
+        top = sources[0]
+        print(f"  {query!r} -> top result: {top.get('title')!r} (score={top.get('score')})")
+
+    print("Compaction verified: row count unchanged, table opens normally, retrieval works.")
 
 
 def main() -> None:
@@ -234,13 +316,19 @@ def main() -> None:
         if args.runtime_command == "backup":
             from moogle_ingest.runtime_snapshot import backup_runtime
 
-            backup_runtime(output=Path(args.output), volume=args.volume, level=args.level)
+            backup_runtime(output=Path(args.output), volume=args.volume, level=args.level, exclude=args.exclude)
             return
 
         if args.runtime_command == "restore":
             from moogle_ingest.runtime_snapshot import restore_runtime
 
             restore_runtime(input_path=Path(args.input), volume=args.volume, wipe_existing=not args.no_wipe)
+            return
+
+        if args.runtime_command == "compact":
+            if not args.skip_backup and not args.backup:
+                parser.error("runtime compact: --backup <path> is required unless --skip-backup is given")
+            _run_runtime_compact(args)
             return
 
         parser.error(f"unsupported runtime command: {args.runtime_command}")
