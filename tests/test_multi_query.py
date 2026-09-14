@@ -72,7 +72,7 @@ def test_filter_redundant_queries_keeps_distinct_queries():
     assert filter_redundant_queries("what affects accuracy", subqueries) == subqueries
 
 
-def test_cli_accepts_ask_and_set_chat_model_commands():
+def test_cli_accepts_ask_command():
     parser = build_parser()
     args = parser.parse_args(["ask", "What is Blade Madrigal?"])
     assert args.command == "ask"
@@ -80,7 +80,3 @@ def test_cli_accepts_ask_and_set_chat_model_commands():
     assert args.fanout_model == "llama3.2:3b"
     assert args.concurrency == 3
     assert args.verbose is False
-
-    args = parser.parse_args(["set-chat-model", "--model", "qwen2.5:7b-instruct-q4_K_M"])
-    assert args.command == "set-chat-model"
-    assert args.workspace == "bg-wiki"

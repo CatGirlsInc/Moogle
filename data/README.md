@@ -24,7 +24,7 @@ Two ways to populate `data/processed/markdown`:
 
 **Rebuild from the original BG-Wiki dump** (default/recommended -- Moogle
 fetches the MediaWiki XML dump directly from its public archive.org mirror
-and regenerates the corpus locally; see "BG-Wiki content and copyright" in
+and regenerates the corpus locally; see "BG-Wiki content and licensing" in
 the top-level README for why this project doesn't re-host/redistribute that
 content itself):
 

@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import tarfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-import requests
 import zstandard as zstd
+
+from moogle_ingest.download import download_archive
 
 DEFAULT_GITHUB_REPO = "CatGirlsInc/Moogle"
 MANIFEST_SCHEMA_VERSION = 1
@@ -211,18 +213,14 @@ def install_knowledge(
         archive_path = download_dir / archive_filename
         manifest_path = download_dir / manifest_filename
 
-        if not manifest_path.exists() or force:
-            _download_file(manifest_url, manifest_path)
-        if not archive_path.exists() or force:
-            _download_file(archive_url, archive_path)
+        download_archive(url=manifest_url, output=manifest_path, force=force)
+        download_archive(url=archive_url, output=archive_path, force=force)
 
     verify_archive(archive_path=archive_path, manifest_path=manifest_path)
 
     if dest_dir.exists() and force:
         for child in dest_dir.iterdir():
             if child.is_dir():
-                import shutil
-
                 shutil.rmtree(child)
             else:
                 child.unlink()
@@ -230,17 +228,3 @@ def install_knowledge(
     _extract_archive(archive_path, dest_dir)
     print(f"Installed knowledge {knowledge_version} into {dest_dir}")
     return dest_dir
-
-
-def _download_file(url: str, output: Path) -> Path:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    tmp = output.with_suffix(output.suffix + ".part")
-    with requests.get(url, stream=True, timeout=60) as response:
-        response.raise_for_status()
-        with tmp.open("wb") as out:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    out.write(chunk)
-    tmp.replace(output)
-    print(f"Downloaded {url} -> {output}")
-    return output

@@ -15,7 +15,7 @@ content themselves, and are checked into Git as schema documentation/
 reference and as the thing `moogle knowledge install`/`moogle knowledge
 verify` trust. The (large) archive itself embeds full BG-Wiki article text
 and is **not** published as a public GitHub Release asset by default -- see
-"BG-Wiki content and copyright" in the top-level README. Host it privately
+"BG-Wiki content and licensing" in the top-level README. Host it privately
 if you have confirmed redistribution rights, or regenerate it locally via
 `moogle bootstrap` + `moogle knowledge package`.
 
