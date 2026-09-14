@@ -8,6 +8,28 @@ Authoritative corpus output:
 
 Everything after that stage (AnythingLLM vectors/indexes and app state) is treated as rebuildable runtime state.
 
+## BG-Wiki content and copyright
+
+This repository's source code is MIT-licensed (see [`LICENSE`](LICENSE)). That
+license does **not** cover BG-Wiki content: the processed Markdown corpus is
+derived from [bg-wiki.com](https://www.bg-wiki.com/), a fan-maintained wiki
+for Final Fantasy XI, and remains the property of its original
+contributors/BG-Wiki under BG-Wiki's own terms. This project is unaffiliated
+with and not endorsed by BG-Wiki or Square Enix; "Final Fantasy XI" is a
+trademark of Square Enix Holdings Co., Ltd.
+
+Because BG-Wiki's redistribution terms for bulk/derived corpus reuse aren't
+confirmed, this project does **not** publish the processed-Markdown archive or
+the AnythingLLM/LanceDB runtime snapshot (both embed full BG-Wiki article
+text) as public GitHub Release assets. The default/recommended path is
+`moogle bootstrap`, which fetches the MediaWiki XML dump directly from its
+public archive.org mirror and regenerates the corpus locally under your own
+review of BG-Wiki's terms -- Moogle itself never re-hosts or redistributes
+that content. The `moogle knowledge`/`moogle runtime` commands below still
+support packaging and installing prebuilt archives; use them with your own
+privately hosted storage if you have confirmed rights to redistribute, not
+with the public GitHub Release by default.
+
 ## Release model
 
 Moogle ships as three independently versioned layers:
@@ -26,32 +48,29 @@ always be regenerated from the knowledge corpus via `moogle ingest`.
 
 Release artifacts (see [`manifests/`](manifests/) and [`data/README.md`](data/README.md)):
 
-1. source code + pinned `compose.yaml`/`compose.gpu.yaml`/image tags (Git, tagged `v1.0.0`)
-2. `moogle-bgwiki-20250225.1.tar.zst` -- compressed processed-Markdown archive
-3. `moogle-bgwiki-20250225.1.manifest.json` -- checksums + provenance (committed to Git under `manifests/`)
-4. optional `anythingllm-bgwiki-20250225.1.tar.zst` -- prebuilt AnythingLLM/LanceDB state snapshot
-
-Archives (2) and (4) are large and are attached to GitHub Releases rather than
-committed to Git history; only their manifests/checksums live in Git.
+1. source code + pinned `compose.yaml`/`compose.gpu.yaml`/image tags (Git, tagged `v1.0.0`) -- published publicly
+2. `moogle-bgwiki-20250225.1.tar.zst` -- compressed processed-Markdown archive -- **not published publicly** (see "BG-Wiki content and copyright" above); build it yourself via `moogle bootstrap` + `moogle knowledge package`, or host it privately
+3. `moogle-bgwiki-20250225.1.manifest.json` -- checksums + provenance for (2) -- published in Git under `manifests/` as schema documentation/reference, independent of whether the archive itself is hosted anywhere
+4. optional `anythingllm-bgwiki-20250225.1.tar.zst` -- prebuilt AnythingLLM/LanceDB state snapshot -- also **not published publicly**, same reasoning as (2)
 
 ## Two supported install paths
 
-**Fast** (skip re-ingestion, use a prebuilt runtime snapshot):
+**Fast** (skip re-ingestion, restore a runtime snapshot you built or were given privately):
 
 ```bash
 git clone https://github.com/CatGirlsInc/Moogle.git && cd Moogle
 cp .env.example .env
-uv run moogle runtime restore backups/anythingllm-bgwiki-20250225.1.tar.zst
+uv run moogle runtime restore /path/to/anythingllm-bgwiki-20250225.1.tar.zst
 uv run moogle up
 ```
 
-**Reproducible** (rebuild vectors locally from the canonical Markdown corpus):
+**Reproducible** (default/recommended -- rebuild the corpus + vectors locally from the public BG-Wiki dump):
 
 ```bash
 git clone https://github.com/CatGirlsInc/Moogle.git && cd Moogle
 cp .env.example .env
 uv sync --extra dev
-uv run moogle knowledge install bgwiki-20250225.1
+uv run moogle bootstrap
 uv run moogle up
 uv run moogle ingest
 ```
@@ -216,20 +235,24 @@ share the same decomposition, dedup/ranking, and synthesis code.
 
 `data/processed/markdown` is not committed to Git (see `.gitignore`); it is
 installed or rebuilt locally. See [`data/README.md`](data/README.md) for the
-full directory layout.
+full directory layout. The default/recommended way to populate it is
+`moogle bootstrap` (fetches the public BG-Wiki dump directly, see above).
 
-Install a released knowledge version:
+`moogle knowledge install`/`package` exist for teams that host their own
+prebuilt archive (e.g. private object storage or a private GitHub Release)
+and want the same checksum-verified install flow without re-running the full
+pipeline:
 
 ```bash
-uv run moogle knowledge install bgwiki-20250225.1
+uv run moogle knowledge install bgwiki-20250225.1 --base-url https://your-private-host/knowledge
 ```
 
-This fetches `moogle-bgwiki-20250225.1.tar.zst` + its manifest from the
-project's GitHub Releases (tag `knowledge-bgwiki-20250225.1`), verifies the
+This fetches `moogle-bgwiki-20250225.1.tar.zst` + its manifest, verifies the
 archive's SHA-256 checksum against the manifest, and extracts it into
 `data/processed/markdown`. Use `--archive`/`--manifest` to install from local
-files instead of downloading, or `--base-url`/`--github-repo` to point at a
-different host (e.g. object storage, once/if archives outgrow GitHub Releases).
+files instead of downloading. `--github-repo`/the default GitHub Releases URL
+form are supported but nothing is published there by default -- see
+"BG-Wiki content and copyright" above.
 
 Verify an archive you already have against its manifest:
 
@@ -275,9 +298,19 @@ uv run moogle up
 Both commands run a short-lived helper container (`alpine`) that mounts the
 named volume (default `moogle_anythingllm`) alongside the host backup file and
 tar+zstd its contents -- no changes to the running `anythingllm`/`ollama`
-containers themselves. Label these snapshots clearly as convenience artifacts
-when distributing them (e.g. in a GitHub Release description); the processed
-Markdown corpus remains the canonical source of truth.
+containers themselves. This snapshot embeds full BG-Wiki article text (in
+LanceDB's `text` column), so treat it the same as the knowledge archive: keep
+it out of the public GitHub Release, and if you distribute it privately, label
+it clearly as a rebuildable convenience artifact, not the source of truth.
+
+**Size/speed note:** the full-corpus LanceDB volume for this project measured
+~95 GB (dominated by 1024-dimensional float32 vectors, which barely
+compress). `moogle runtime backup` defaults to zstd level 3 (~85 MB/s
+observed, multithreaded) rather than a high compression level for exactly
+this reason -- level 19 was tested and was impractically slow for a volume
+this size. Use `--level` to trade off further; a runtime snapshot at this
+scale is well beyond what's practical to attach to a GitHub Release (see
+"GitHub Release size limits" below) even before the copyright concern above.
 
 ## Compatibility assumptions (`--backend direct-lancedb`)
 
@@ -313,6 +346,21 @@ Override via `.env` (`OLLAMA_IMAGE`, `ANYTHINGLLM_IMAGE`) if testing a newer
 version; update the pinned defaults in `compose.yaml`/`.env.example` and the
 `tested_versions` fields recorded in new knowledge manifests once a newer
 combination has been validated end-to-end.
+
+## GitHub Release size limits
+
+GitHub Releases accepts individual assets up to 2 GB. The processed-Markdown
+corpus packages small (the reference `bgwiki-20250225.1` build is ~13 MiB
+compressed for 47,941 documents, see [`manifests/`](manifests/)) and would fit
+comfortably if it were published there. The AnythingLLM/LanceDB runtime
+snapshot does not: the full-corpus volume measured **~95 GB** uncompressed
+(mostly incompressible float32 embedding vectors), tens of GB even after
+compression -- far over the per-asset limit and impractical to host on GitHub
+regardless. Combined with the unresolved BG-Wiki redistribution question
+above, neither artifact is published to the public GitHub Release for this
+project; both `moogle knowledge install` and `moogle runtime restore` accept
+`--base-url`/a local path so a fork or private deployment can point at its own
+object storage without any code changes if/when that becomes necessary.
 
 ## Docker stack
 

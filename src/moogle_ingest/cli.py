@@ -76,6 +76,11 @@ def build_parser() -> argparse.ArgumentParser:
     runtime_backup = runtime_sub.add_parser("backup", help="Tar+zstd the AnythingLLM Docker volume to a file")
     runtime_backup.add_argument("output", help="e.g. backups/anythingllm-bgwiki-20250225.1.tar.zst")
     runtime_backup.add_argument("--volume", default="moogle_anythingllm")
+    runtime_backup.add_argument(
+        "--level", type=int, default=3,
+        help="zstd compression level (default 3 -- LanceDB volumes are mostly float32 vector data, "
+        "which barely compresses, so a high level costs a lot of time for little size benefit)",
+    )
 
     runtime_restore = runtime_sub.add_parser("restore", help="Restore a backup into the AnythingLLM Docker volume (stack should be stopped)")
     runtime_restore.add_argument("input", help="Path to a backup produced by `moogle runtime backup`")
@@ -229,7 +234,7 @@ def main() -> None:
         if args.runtime_command == "backup":
             from moogle_ingest.runtime_snapshot import backup_runtime
 
-            backup_runtime(output=Path(args.output), volume=args.volume)
+            backup_runtime(output=Path(args.output), volume=args.volume, level=args.level)
             return
 
         if args.runtime_command == "restore":

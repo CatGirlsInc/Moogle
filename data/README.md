@@ -22,25 +22,28 @@ vectors) is rebuildable cache, not authoritative content.
 
 Two ways to populate `data/processed/markdown`:
 
-**Install a released knowledge version** (fast, no MediaWiki processing):
-
-```bash
-uv run moogle knowledge install bgwiki-20250225.1
-```
-
-This downloads the matching archive + manifest from the project's GitHub
-Releases (tag `knowledge-bgwiki-20250225.1`), verifies the archive's SHA-256
-checksum against the manifest, and extracts it into `data/processed/markdown`.
-Use `--archive`/`--manifest` to install from local files instead of
-downloading (e.g. artifacts already fetched by CI or copied from another
-machine).
-
-**Rebuild from the original BG-Wiki dump** (reproducible, but takes longer —
-downloads and reprocesses the full MediaWiki export):
+**Rebuild from the original BG-Wiki dump** (default/recommended -- Moogle
+fetches the MediaWiki XML dump directly from its public archive.org mirror
+and regenerates the corpus locally; see "BG-Wiki content and copyright" in
+the top-level README for why this project doesn't re-host/redistribute that
+content itself):
 
 ```bash
 uv run moogle bootstrap
 ```
+
+**Install a prebuilt knowledge version** (faster, no MediaWiki processing --
+for teams with their own privately hosted, rights-confirmed archive):
+
+```bash
+uv run moogle knowledge install bgwiki-20250225.1 --base-url https://your-private-host/knowledge
+```
+
+This downloads the matching archive + manifest, verifies the archive's
+SHA-256 checksum against the manifest, and extracts it into
+`data/processed/markdown`. Use `--archive`/`--manifest` to install from local
+files instead of downloading (e.g. artifacts already fetched by CI or copied
+from another machine).
 
 See the top-level [README](../README.md) for the full release model
 (Moogle software version vs. knowledge version vs. optional runtime

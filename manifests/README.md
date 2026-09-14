@@ -10,10 +10,14 @@ and the top-level README's "Release model" section).
 Each manifest records: the Moogle software version it was packaged with, the
 knowledge version, the source MediaWiki dump identity, document count,
 embedding model/dimensions, tested AnythingLLM/Ollama versions, and the
-archive's SHA-256 checksum + size. Manifests are small, checked into Git, and
-are the thing `moogle knowledge install`/`moogle knowledge verify` trust —
-the (large) archive itself is not committed to Git; it is attached to the
-matching GitHub Release (tag `knowledge-<knowledge_version>`) instead.
+archive's SHA-256 checksum + size. Manifests are small, contain no BG-Wiki
+content themselves, and are checked into Git as schema documentation/
+reference and as the thing `moogle knowledge install`/`moogle knowledge
+verify` trust. The (large) archive itself embeds full BG-Wiki article text
+and is **not** published as a public GitHub Release asset by default -- see
+"BG-Wiki content and copyright" in the top-level README. Host it privately
+if you have confirmed redistribution rights, or regenerate it locally via
+`moogle bootstrap` + `moogle knowledge package`.
 
 Generate a manifest + archive from a local corpus:
 

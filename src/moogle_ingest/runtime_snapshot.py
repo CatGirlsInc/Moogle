@@ -19,6 +19,11 @@ from pathlib import Path
 
 DEFAULT_VOLUME = "moogle_anythingllm"
 DEFAULT_HELPER_IMAGE = "alpine:3.20"
+# LanceDB volumes are dominated by float32 vector data, which is close to
+# incompressible and large (tens of GB is common) -- a high zstd level buys
+# almost no size reduction for a huge time cost. Level 3 (multithreaded) is a
+# much better default; pass --level for a different size/speed tradeoff.
+DEFAULT_COMPRESSION_LEVEL = 3
 
 
 def _run(cmd: list[str]) -> None:
@@ -30,6 +35,7 @@ def backup_runtime(
     output: Path,
     volume: str = DEFAULT_VOLUME,
     helper_image: str = DEFAULT_HELPER_IMAGE,
+    level: int = DEFAULT_COMPRESSION_LEVEL,
 ) -> Path:
     """Tar+zstd the contents of a named Docker volume to `output`."""
     output = Path(output).resolve()
@@ -42,7 +48,7 @@ def backup_runtime(
         helper_image,
         "sh", "-c",
         f"apk add --no-cache zstd tar >/dev/null 2>&1 && "
-        f"tar -C /source -cf - . | zstd -19 -T0 -o /backup/{output.name}",
+        f"tar -C /source -cf - . | zstd -{level} -T0 -o /backup/{output.name}",
     ]
     _run(cmd)
     print(f"Backed up volume '{volume}' to {output}")
