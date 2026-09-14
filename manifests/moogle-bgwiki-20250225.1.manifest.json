@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "moogle_version": "1.0.0",
+  "knowledge_version": "bgwiki-20250225.1",
+  "created_at": "2026-09-14T14:47:51.976335+00:00",
+  "source_dump": {
+    "name": "www.bg-wiki.com-20250225-current.xml.zst",
+    "retrieved_date": "2025-02-25",
+    "checksum": "d1a0885cb882bd6c45d4cbed946c5caefa783761bc983f97d9b76f31e2e8c063"
+  },
+  "document_count": 47941,
+  "embedding_model": {
+    "name": "mxbai-embed-large",
+    "dimensions": 1024
+  },
+  "tested_versions": {
+    "anythingllm": "1.16.0",
+    "ollama": "0.32.15"
+  },
+  "archive": {
+    "filename": "moogle-bgwiki-20250225.1.tar.zst",
+    "sha256": "6a4f294b0e1f46c2116ee4908aa2c1431141a86d664cdb84ce2ba4567b319ff6",
+    "size_bytes": 13471875
+  }
+}

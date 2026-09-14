@@ -19,7 +19,13 @@ htmlcov/
 # Generated pipeline corpus (rebuildable via `moogle bootstrap`)
 data/raw/
 data/processed/
+data/downloads/
 BG-Wiki/
+
+# Packaged release artifacts and runtime snapshots (large, not source of truth;
+# published to GitHub Releases instead -- see manifests/ for checksums)
+dist/
+backups/
 
 # AnythingLLM/Ollama runtime state (LanceDB index, embeddings, app data);
 # lives in named Docker volumes, not bind-mounted, but ignored defensively

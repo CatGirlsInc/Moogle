@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Moogle knowledge release manifest",
+  "description": "Describes one versioned, distributable release of the processed BG-Wiki Markdown knowledge corpus.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "moogle_version",
+    "knowledge_version",
+    "created_at",
+    "source_dump",
+    "document_count",
+    "embedding_model",
+    "tested_versions",
+    "archive"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "description": "Manifest schema version, bumped on breaking field changes."
+    },
+    "moogle_version": {
+      "type": "string",
+      "description": "Moogle application/software version this corpus was packaged with, e.g. 1.0.0."
+    },
+    "knowledge_version": {
+      "type": "string",
+      "description": "Knowledge corpus version, independent of moogle_version, e.g. bgwiki-20250225.1."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp the archive/manifest were generated."
+    },
+    "source_dump": {
+      "type": "object",
+      "required": ["name", "retrieved_date"],
+      "properties": {
+        "name": { "type": "string", "description": "Original MediaWiki XML dump filename." },
+        "retrieved_date": { "type": "string", "description": "Date the dump was retrieved from BG-Wiki, e.g. 2025-02-25." },
+        "checksum": { "type": ["string", "null"], "description": "sha256 of the raw (pre-decompression) dump, if known." }
+      }
+    },
+    "document_count": {
+      "type": "integer",
+      "description": "Number of markdown files included in the archive after downselection."
+    },
+    "embedding_model": {
+      "type": "object",
+      "required": ["name", "dimensions"],
+      "properties": {
+        "name": { "type": "string", "description": "Embedding model this corpus is expected to be embedded with, e.g. mxbai-embed-large." },
+        "dimensions": { "type": "integer", "description": "Embedding vector dimensionality, e.g. 1024." }
+      }
+    },
+    "tested_versions": {
+      "type": "object",
+      "required": ["anythingllm", "ollama"],
+      "properties": {
+        "anythingllm": { "type": "string", "description": "AnythingLLM image tag this corpus/manifest was tested against." },
+        "ollama": { "type": "string", "description": "Ollama image tag this corpus/manifest was tested against." }
+      }
+    },
+    "archive": {
+      "type": "object",
+      "required": ["filename", "sha256", "size_bytes"],
+      "properties": {
+        "filename": { "type": "string", "description": "Archive filename, e.g. moogle-bgwiki-20250225.1.tar.zst." },
+        "sha256": { "type": "string", "description": "sha256 checksum of the archive file." },
+        "size_bytes": { "type": "integer", "description": "Archive size in bytes." }
+      }
+    }
+  }
+}

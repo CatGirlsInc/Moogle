@@ -5,6 +5,15 @@ import sys
 from pathlib import Path
 
 
+def _moogle_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("moogle")
+    except PackageNotFoundError:
+        return "0.0.0+unknown"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="BG-Wiki ingestion and markdown conversion pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -32,6 +41,46 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Resume a prior ingest by preserving the workspace and skipping markdown files already attached to it.",
     )
+
+    knowledge = subparsers.add_parser("knowledge", help="Package, verify, or install a versioned knowledge corpus release")
+    knowledge_sub = knowledge.add_subparsers(dest="knowledge_command", required=True)
+
+    knowledge_package = knowledge_sub.add_parser("package", help="Package data/processed/markdown into a versioned tar.zst archive + manifest")
+    knowledge_package.add_argument("knowledge_version", help="e.g. bgwiki-20250225.1")
+    knowledge_package.add_argument("--input", default="data/processed/markdown")
+    knowledge_package.add_argument("--output", default="dist", help="Directory to write the archive + manifest into")
+    knowledge_package.add_argument("--source-dump-name", default="www.bg-wiki.com-20250225-current.xml.zst")
+    knowledge_package.add_argument("--source-dump-date", default="2025-02-25")
+    knowledge_package.add_argument("--source-dump-checksum", default=None, help="sha256 of the raw MediaWiki dump, if known")
+    knowledge_package.add_argument("--embedding-model", default="mxbai-embed-large")
+    knowledge_package.add_argument("--embedding-dimensions", type=int, default=1024)
+    knowledge_package.add_argument("--tested-anythingllm-version", default="1.16.0")
+    knowledge_package.add_argument("--tested-ollama-version", default="0.32.15")
+
+    knowledge_verify = knowledge_sub.add_parser("verify", help="Verify an archive's checksum/size against its manifest")
+    knowledge_verify.add_argument("archive")
+    knowledge_verify.add_argument("manifest")
+
+    knowledge_install = knowledge_sub.add_parser("install", help="Download (or use local), verify, and extract a knowledge release")
+    knowledge_install.add_argument("knowledge_version", help="e.g. bgwiki-20250225.1")
+    knowledge_install.add_argument("--dest", default="data/processed/markdown")
+    knowledge_install.add_argument("--archive", default=None, help="Use a local archive file instead of downloading")
+    knowledge_install.add_argument("--manifest", default=None, help="Use a local manifest file instead of downloading")
+    knowledge_install.add_argument("--base-url", default=None, help="Base URL to fetch <archive>/<manifest> from (defaults to a GitHub Releases URL)")
+    knowledge_install.add_argument("--github-repo", default="CatGirlsInc/Moogle")
+    knowledge_install.add_argument("--force", action="store_true", help="Overwrite an existing non-empty destination")
+
+    runtime = subparsers.add_parser("runtime", help="Backup or restore the AnythingLLM runtime state (convenience cache, not source of truth)")
+    runtime_sub = runtime.add_subparsers(dest="runtime_command", required=True)
+
+    runtime_backup = runtime_sub.add_parser("backup", help="Tar+zstd the AnythingLLM Docker volume to a file")
+    runtime_backup.add_argument("output", help="e.g. backups/anythingllm-bgwiki-20250225.1.tar.zst")
+    runtime_backup.add_argument("--volume", default="moogle_anythingllm")
+
+    runtime_restore = runtime_sub.add_parser("restore", help="Restore a backup into the AnythingLLM Docker volume (stack should be stopped)")
+    runtime_restore.add_argument("input", help="Path to a backup produced by `moogle runtime backup`")
+    runtime_restore.add_argument("--volume", default="moogle_anythingllm")
+    runtime_restore.add_argument("--no-wipe", action="store_true", help="Do not clear existing volume contents before restoring")
 
     up = subparsers.add_parser("up", help="Start the Docker compose stack (alias for `docker compose up -d --wait`)")
     up.add_argument("--gpu", action="store_true", help="Also apply the compose.gpu.yaml GPU override")
@@ -127,11 +176,74 @@ def main() -> None:
         )
         return
 
+    if args.command == "knowledge":
+        if args.knowledge_command == "package":
+            from moogle_ingest.knowledge import SourceDump, package_markdown_corpus
+
+            package_markdown_corpus(
+                input_dir=Path(args.input),
+                output_dir=Path(args.output),
+                knowledge_version=args.knowledge_version,
+                moogle_version=_moogle_version(),
+                source_dump=SourceDump(
+                    name=args.source_dump_name,
+                    retrieved_date=args.source_dump_date,
+                    checksum=args.source_dump_checksum,
+                ),
+                embedding_model=args.embedding_model,
+                embedding_dimensions=args.embedding_dimensions,
+                tested_anythingllm_version=args.tested_anythingllm_version,
+                tested_ollama_version=args.tested_ollama_version,
+            )
+            return
+
+        if args.knowledge_command == "verify":
+            from moogle_ingest.knowledge import verify_archive
+
+            try:
+                verify_archive(archive_path=Path(args.archive), manifest_path=Path(args.manifest))
+            except RuntimeError as exc:
+                parser.error(str(exc))
+            return
+
+        if args.knowledge_command == "install":
+            from moogle_ingest.knowledge import install_knowledge
+
+            try:
+                install_knowledge(
+                    knowledge_version=args.knowledge_version,
+                    dest_dir=Path(args.dest),
+                    archive_path=Path(args.archive) if args.archive else None,
+                    manifest_path=Path(args.manifest) if args.manifest else None,
+                    base_url=args.base_url,
+                    github_repo=args.github_repo,
+                    force=args.force,
+                )
+            except RuntimeError as exc:
+                parser.error(str(exc))
+            return
+
+        parser.error(f"unsupported knowledge command: {args.knowledge_command}")
+
+    if args.command == "runtime":
+        if args.runtime_command == "backup":
+            from moogle_ingest.runtime_snapshot import backup_runtime
+
+            backup_runtime(output=Path(args.output), volume=args.volume)
+            return
+
+        if args.runtime_command == "restore":
+            from moogle_ingest.runtime_snapshot import restore_runtime
+
+            restore_runtime(input_path=Path(args.input), volume=args.volume, wipe_existing=not args.no_wipe)
+            return
+
+        parser.error(f"unsupported runtime command: {args.runtime_command}")
+
     if args.command == "up":
         from moogle_ingest.docker_stack import run_up
 
         sys.exit(run_up(gpu=args.gpu, wait=not args.no_wait))
-
     if args.command == "down":
         from moogle_ingest.docker_stack import run_down
 
